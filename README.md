@@ -3,7 +3,8 @@
 **Defensive vulnerability checking web app for websites and AI endpoints.**
 
 ---
-
+<img width="1351" height="885" alt="image" src="https://github.com/user-attachments/assets/a6ba38c7-d4a6-4dbb-98f2-1a43a3eba079" />
+---
 ## Quick start
 
 ```bash
