@@ -47,8 +47,6 @@ DISCLOSING_HEADERS = frozenset({
     "x-aspnetmvc-version", "x-generator", "x-drupal-cache",
 })
 
-WEAK_CSP_PATTERNS = ("unsafe-inline", "unsafe-eval", "* ", "http:")
-
 
 class HTTPHeadersCheck(BaseCheck):
     check_id = "http_headers"
@@ -85,21 +83,10 @@ class HTTPHeadersCheck(BaseCheck):
                     references=["https://owasp.org/www-project-secure-headers/"],
                 ))
 
-        # Weak CSP
+        # Weak CSP — per-directive analysis
         csp_value = lower.get("content-security-policy", "")
-        for pattern in WEAK_CSP_PATTERNS:
-            if pattern in csp_value:
-                findings.append(Finding(
-                    check_id="http_headers.weak_csp",
-                    title=f"Weak CSP directive detected: '{pattern}'",
-                    description=f"CSP contains '{pattern}' which weakens script execution guards.",
-                    severity=Severity.MEDIUM,
-                    affected_url=str(resp.url),
-                    evidence=[Evidence(label="Content-Security-Policy", value=self._truncate(csp_value))],
-                    remediation="Remove or tighten the weak CSP directive.",
-                    cwe="CWE-693",
-                ))
-                break  # one finding per header is enough
+        if csp_value:
+            findings.extend(self._audit_csp(csp_value, str(resp.url)))
 
         # Disclosing headers
         for header in DISCLOSING_HEADERS:
@@ -116,3 +103,144 @@ class HTTPHeadersCheck(BaseCheck):
                 ))
 
         return findings
+
+    # ── CSP helpers ────────────────────────────────────────────────────────
+
+    def _audit_csp(self, csp: str, url: str) -> list[Finding]:
+        """
+        Parse each CSP directive individually and return a finding per
+        problematic directive with the appropriate severity.
+
+        Severity mapping:
+          HIGH   — 'unsafe-inline' or 'unsafe-eval' in script-src / default-src
+          MEDIUM — 'unsafe-inline' in script-src-attr
+          LOW    — 'unsafe-inline' in style-src
+          MEDIUM — wildcard (*) host in script-src / default-src
+          LOW    — http: scheme in any directive
+        """
+        import re as _re
+        results: list[Finding] = []
+
+        # Parse directives into a dict: name -> value string
+        directives: dict[str, str] = {}
+        for part in csp.split(";"):
+            part = part.strip()
+            if not part:
+                continue
+            tokens = part.split(None, 1)
+            directives[tokens[0].lower()] = tokens[1] if len(tokens) > 1 else ""
+
+        def _script_effective() -> str:
+            return directives.get("script-src", directives.get("default-src", ""))
+
+        script_val = _script_effective()
+
+        # 1. unsafe-inline in script-src / default-src (HIGH)
+        if "'unsafe-inline'" in script_val:
+            results.append(Finding(
+                check_id="http_headers.weak_csp.script_unsafe_inline",
+                title="CSP: 'unsafe-inline' in script-src allows arbitrary inline JavaScript",
+                description=(
+                    "The script-src (or default-src fallback) permits 'unsafe-inline', "
+                    "which lets attackers inject and execute inline <script> tags. "
+                    "This largely negates XSS protection."
+                ),
+                severity=Severity.HIGH,
+                affected_url=url,
+                evidence=[Evidence(label="script-src", value=self._truncate(script_val))],
+                remediation=(
+                    "Remove 'unsafe-inline' from script-src. "
+                    "Use a per-request nonce or sha256 hash for inline blocks instead."
+                ),
+                cwe="CWE-693",
+                references=["https://csp.withgoogle.com/docs/strict-csp.html"],
+            ))
+
+        # 2. unsafe-eval in script-src / default-src (HIGH)
+        if "'unsafe-eval'" in script_val:
+            results.append(Finding(
+                check_id="http_headers.weak_csp.script_unsafe_eval",
+                title="CSP: 'unsafe-eval' in script-src allows eval() and similar sinks",
+                description=(
+                    "Permitting 'unsafe-eval' allows eval(), Function(), "
+                    "and setTimeout(string). Exploitable if user-controlled data reaches those sinks."
+                ),
+                severity=Severity.HIGH,
+                affected_url=url,
+                evidence=[Evidence(label="script-src", value=self._truncate(script_val))],
+                remediation="Remove 'unsafe-eval'. Refactor code to avoid eval() patterns.",
+                cwe="CWE-693",
+            ))
+
+        # 3. unsafe-inline in script-src-attr (MEDIUM — inline event handlers)
+        attr_val = directives.get("script-src-attr", "")
+        if "'unsafe-inline'" in attr_val:
+            results.append(Finding(
+                check_id="http_headers.weak_csp.script_src_attr_unsafe_inline",
+                title="CSP: 'unsafe-inline' in script-src-attr allows inline event handlers",
+                description=(
+                    "script-src-attr controls inline event handlers (onclick, onerror, etc.). "
+                    "'unsafe-inline' here allows attackers to inject handlers via HTML injection."
+                ),
+                severity=Severity.MEDIUM,
+                affected_url=url,
+                evidence=[Evidence(label="script-src-attr", value=self._truncate(attr_val))],
+                remediation=(
+                    "Remove 'unsafe-inline' from script-src-attr. "
+                    "Use addEventListener() in external scripts instead of inline handlers."
+                ),
+                cwe="CWE-693",
+            ))
+
+        # 4. unsafe-inline in style-src (LOW — CSS injection)
+        style_val = directives.get("style-src", directives.get("default-src", ""))
+        if "'unsafe-inline'" in style_val:
+            results.append(Finding(
+                check_id="http_headers.weak_csp.style_unsafe_inline",
+                title="CSP: 'unsafe-inline' in style-src allows inline styles",
+                description=(
+                    "Inline styles can be used for CSS-based data exfiltration and "
+                    "UI-redressing attacks. Prefer external stylesheets or nonce/hash."
+                ),
+                severity=Severity.LOW,
+                affected_url=url,
+                evidence=[Evidence(label="style-src", value=self._truncate(style_val))],
+                remediation=(
+                    "Remove 'unsafe-inline' from style-src. "
+                    "Use a nonce or hash for any necessary inline <style> blocks."
+                ),
+                cwe="CWE-693",
+            ))
+
+        # 5. Wildcard host in script-src (MEDIUM)
+        if _re.search(r"(?:^|\s)\*(?:\s|$)", script_val):
+            results.append(Finding(
+                check_id="http_headers.weak_csp.script_wildcard",
+                title="CSP: wildcard (*) in script-src trusts any origin",
+                description="A bare wildcard in script-src allows scripts from any host.",
+                severity=Severity.MEDIUM,
+                affected_url=url,
+                evidence=[Evidence(label="script-src", value=self._truncate(script_val))],
+                remediation="Replace * with explicit trusted host names.",
+                cwe="CWE-693",
+            ))
+
+        # 6. http: scheme in any directive (LOW — mixed content)
+        for name, val in directives.items():
+            if "http:" in val.split():
+                results.append(Finding(
+                    check_id=f"http_headers.weak_csp.http_scheme.{name.replace('-', '_')}",
+                    title=f"CSP: http: scheme allowed in {name}",
+                    description=(
+                        f"The {name} directive permits http: sources, "
+                        "allowing resources over unencrypted connections (MITM injection risk)."
+                    ),
+                    severity=Severity.LOW,
+                    affected_url=url,
+                    evidence=[Evidence(label=name, value=self._truncate(val))],
+                    remediation=f"Replace http: with https: in the {name} directive.",
+                    cwe="CWE-319",
+                ))
+                break
+
+        return results
