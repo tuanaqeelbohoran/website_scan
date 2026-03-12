@@ -1,0 +1,2 @@
+cd C:\Users\aqeel_bohoran_tuan\Documents\website_scan\webscan
+c:/Users/aqeel_bohoran_tuan/Documents/website_scan/.venv/Scripts/python.exe -m ui.app

@@ -1,0 +1,85 @@
+version: "3.9"
+
+# ──────────────────────────────────────────────────────────────────────────
+#  WebScan — docker-compose
+#
+#  Services:
+#    webscan  — main application (FastAPI + NiceGUI)
+#    ollama   — optional local LLM (disabled by default, see profiles)
+#
+#  Usage:
+#    Standard:      docker compose up webscan
+#    With Ollama:   docker compose --profile agents up
+# ──────────────────────────────────────────────────────────────────────────
+
+services:
+
+  webscan:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: webscan:latest
+    container_name: webscan
+    restart: unless-stopped
+
+    # Bind ONLY to localhost — do not expose to 0.0.0.0
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    environment:
+      HOST:                   "0.0.0.0"   # inside container only
+      PORT:                   "8080"
+      LOG_LEVEL:              "${LOG_LEVEL:-INFO}"
+      MAX_CONCURRENT_CHECKS:  "${MAX_CONCURRENT_CHECKS:-3}"
+      REQUEST_TIMEOUT_SEC:    "${REQUEST_TIMEOUT_SEC:-8.0}"
+      MAX_REQUESTS_PER_SCAN:  "${MAX_REQUESTS_PER_SCAN:-50}"
+      DELAY_BETWEEN_REQS_SEC: "${DELAY_BETWEEN_REQS_SEC:-0.5}"
+      ALLOWED_TARGETS_REGEX:  "${ALLOWED_TARGETS_REGEX:-}"
+      ENABLE_SLM_AGENTS:      "${ENABLE_SLM_AGENTS:-false}"
+      OLLAMA_BASE_URL:        "http://ollama:11434"
+      SLM_MODEL:              "${SLM_MODEL:-llama3}"
+      AUDIT_LOG_FILE:         "/app/logs/audit.jsonl"
+      REPORT_STORE_DIR:       "/app/reports"
+      SUPPRESSION_FILE:       "/app/suppression.yaml"
+
+    volumes:
+      - webscan_reports:/app/reports
+      - webscan_logs:/app/logs
+      - ./webscan/suppression.yaml:/app/suppression.yaml:ro
+
+    # Read-only root FS where possible; writable mounts are explicit
+    read_only: true
+    tmpfs:
+      - /tmp
+
+    security_opt:
+      - no-new-privileges:true
+
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/docs')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Optional Ollama LLM service ──────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    profiles:
+      - agents
+    restart: unless-stopped
+    # Only reachable from webscan — not exposed to host
+    expose:
+      - "11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: "5m"
+
+# ── Named volumes ────────────────────────────────────────────────────────
+volumes:
+  webscan_reports:
+  webscan_logs:
+  ollama_models:

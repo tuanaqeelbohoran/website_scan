@@ -1,0 +1,29 @@
+# WebScan — pip requirements
+# Generated from pyproject.toml
+# Install with:  pip install -r requirements.txt
+
+# ── Core web framework ─────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+
+# ── UI ─────────────────────────────────────────────────────────────
+nicegui>=1.4.21
+
+# ── HTTP client ─────────────────────────────────────────────────────
+httpx[http2]>=0.27.0
+
+# ── Config / validation ─────────────────────────────────────────────
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+
+# ── PDF generation ──────────────────────────────────────────────────
+reportlab>=4.1.0
+
+# ── Logging ─────────────────────────────────────────────────────────
+python-json-logger>=2.0.7
+
+# ── YAML (suppression file) ──────────────────────────────────────────
+pyyaml>=6.0.1
+
+# ── Plotly (UI charts) ───────────────────────────────────────────────
+plotly>=5.21.0

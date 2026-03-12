@@ -1,0 +1,29 @@
+# suppression.yaml — example suppression rules
+#
+# Findings matching ALL specified patterns are suppressed from reports.
+#
+# Fields:
+#   check_id_pattern : Python regex matched against Finding.check_id
+#   url_pattern      : Python regex matched against Finding.affected_url (optional)
+#   reason           : Free-text explanation (required — keeps audit trail)
+#   expires          : ISO date after which the suppression stops applying (optional)
+#
+# Example rules:
+
+suppressions:
+  # Suppress robots.txt missing finding for a known internal tool
+  - check_id_pattern: "^website\\.robots_sitemap$"
+    url_pattern:      "^https://internal-tool\\.example\\.com"
+    reason:           "Internal tool — robots.txt intentionally absent"
+    expires:          "2025-12-31"
+
+  # Suppress PASS-level findings for banner leakage on staging
+  - check_id_pattern: "^website\\.banner_leakage$"
+    url_pattern:      "staging\\.example\\.com"
+    reason:           "Staging environment — version headers acceptable"
+
+  # Suppress wildcard CORS for a public CDN
+  - check_id_pattern: "^website\\.cors_posture$"
+    url_pattern:      "^https://cdn\\.example\\.com"
+    reason:           "CDN endpoint — wildcard CORS is intentional by design"
+    expires:          "2025-06-30"

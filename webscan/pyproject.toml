@@ -1,0 +1,96 @@
+[build-system]
+requires      = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name        = "webscan"
+version     = "1.0.0"
+description = "Defensive vulnerability checking web app for websites and AI endpoints"
+readme      = "README.md"
+requires-python = ">=3.10"
+license     = {text = "MIT"}
+
+dependencies = [
+    # Web framework
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    # UI
+    "nicegui>=1.4.21",
+    # HTTP client
+    "httpx[http2]>=0.27.0",
+    # Config / validation
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    # PDF generation
+    "reportlab>=4.1.0",
+    # Logging
+    "python-json-logger>=2.0.7",
+    # Suppression file parsing
+    "pyyaml>=6.0.1",
+    # Plotly (used in UI components)
+    "plotly>=5.21.0",
+]
+
+[project.optional-dependencies]
+agents = [
+    # Local LLM via Ollama HTTP API (no binary dependency)
+    "httpx[http2]>=0.27.0",   # already in main; listed for clarity
+]
+slm-llama = [
+    # Alternatively: run llama.cpp directly (GPU-optional)
+    "llama-cpp-python>=0.2.77",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "respx>=0.21.0",                 # httpx mock
+    "mypy>=1.10.0",
+    "ruff>=0.4.0",
+    "httpx[http2]>=0.27.0",
+]
+
+[project.scripts]
+webscan-ui  = "ui.app:main"
+webscan-api = "api.main:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+asyncio_mode    = "auto"
+testpaths       = ["tests"]
+addopts         = "-v --tb=short"
+markers         = [
+    "live: requires live network access (use --run-live to enable)",
+    "slow: slower integration tests",
+]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = ["E", "F", "W", "I", "UP", "B", "S"]
+ignore = [
+    "S101",   # assert in tests is fine
+    "S603",   # subprocess without shell=True
+    "B008",   # do not perform function calls in argument defaults (FastAPI depends)
+]
+
+[tool.ruff.per-file-ignores]
+"tests/*"  = ["S", "B"]
+"agents/*" = ["S110"]   # broad exception catch is intentional in agents
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version         = "3.11"
+strict                 = false
+ignore_missing_imports = true
+warn_unused_ignores    = true
