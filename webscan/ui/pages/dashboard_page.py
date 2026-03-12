@@ -69,6 +69,7 @@ def dashboard_page(scan_id: str) -> None:
                 return
 
             meta      = data.get("metadata", {})
+            summary   = data.get("summary", {})
             raw_finds = data.get("findings", [])
             findings  = [_parse_finding(f) for f in raw_finds]
 
@@ -82,9 +83,11 @@ def dashboard_page(scan_id: str) -> None:
             for f in findings:
                 sev_counts[f.severity.value] += 1
 
+            risk_score = summary.get("risk_score", meta.get("risk_score", "?"))
+
             with ui.row().classes("gap-2 q-mb-sm flex-wrap"):
-                ui.label(f"Target: {meta.get('target_url', scan_id)}").classes("text-caption")
-                ui.label(f"Risk score: {meta.get('risk_score', '?')}/100").classes(
+                ui.label(f"Target: {data.get('target_url', meta.get('target_url', scan_id))}").classes("text-caption")
+                ui.label(f"Risk score: {risk_score}/100").classes(
                     "text-caption font-bold"
                 )
                 for sev, cnt in sev_counts.items():
